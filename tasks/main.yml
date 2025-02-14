@@ -1,0 +1,124 @@
+---
+- name: Get Azure VM info
+  azure.azcollection.azure_rm_virtualmachine_info:
+    name: "{{ inventory_hostname_short }}"
+    resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
+  register: vm
+  delegate_to: localhost
+- name: Show Azure VM info
+  ansible.builtin.debug:
+    msg: "{{ vm.vms[0] }}"
+  delegate_to: localhost
+- name: Make sure one VM was returned
+  ansible.builtin.fail:
+    msg: "No VM found for {{ inventory_hostname_short }}"
+  when: vm.vms | length == 0 or vm.vms | length > 1
+  delegate_to: localhost
+- name: Get facts for all managed disks managed by a specific VM
+  azure.azcollection.azure_rm_manageddisk_info:
+    name: "{{ disk.name }}"
+    resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
+  register: managed_disks
+  delegate_to: localhost
+  loop: "{{ vm.vms[0].data_disks }}"
+  loop_control:
+    loop_var: disk
+- name: Show managed disks info
+  ansible.builtin.debug:
+    msg: "{{ managed_disks.results }}"
+  delegate_to: localhost
+- name: Get volume name to lun mapping
+  ansible.builtin.set_fact:
+    vol_name_to_lun: "{{ vol_name_to_lun | default({}) | combine({disk_mapping.ansible_info.azure_managed_disk[0].tags.disk_label: lun}) }}"
+  vars:
+    lun: "lun{{ disk_mapping.disk.lun }}"
+  delegate_to: localhost
+  when: disk_mapping.ansible_info.azure_managed_disk[0].tags.disk_label is defined
+  loop: "{{ managed_disks.results }}"
+  loop_control:
+    loop_var: disk_mapping
+- name: Show volume name to lun mapping
+  ansible.builtin.debug:
+    msg: "{{ vol_name_to_lun }}"
+  delegate_to: localhost
+- name: Get disk facts
+  community.windows.win_disk_facts:
+  register: windows_disks
+# - name: Show disk facts
+#   ansible.builtin.debug:
+#     msg: "{{ windows_disks }}"
+#   delegate_to: localhost
+- name: Get lun mapping to windows disk id
+  ansible.builtin.set_fact:
+    lun_to_win_disk_id: "{{ lun_to_win_disk_id | default({}) | combine({lun: disk.unique_id}) }}"
+  vars:
+    lun: "{{ disk.location | split(':') | last | lower | regex_replace(' ', '') }}"
+  delegate_to: localhost
+  loop: "{{ windows_disks.ansible_facts.ansible_disks }}"
+  loop_control:
+    loop_var: disk
+- name: Show lun to windows disk id
+  ansible.builtin.debug:
+    msg: "{{ lun_to_win_disk_id }}"
+  delegate_to: localhost
+- name: Get volume name to lun mapping
+  ansible.builtin.set_fact:
+    volume_name_to_win_disk_id: "{{ volume_name_to_win_disk_id | default({}) | combine({item.key: win_disk_id}) }}"
+  vars:
+    win_disk_id: "{{ lun_to_win_disk_id[item.value] }}"
+  delegate_to: localhost
+  loop: "{{ vol_name_to_lun | dict2items }}"
+- name: Show lun to windows disk id
+  ansible.builtin.debug:
+    msg: "{{ volume_name_to_win_disk_id }}"
+  delegate_to: localhost
+# this task is required because of this https://github.com/ansible-collections/community.windows/issues/147#issuecomment-1989425640
+# regarding the following task. I expect it to be fixed in a future release of the community.windows collection
+# TODO: remove this task and test if the following task works without it when a new release
+# of community.windows collection > 2.3.0 is available
+- name: Ensure the required NuGet package provider version is installed
+  ansible.windows.win_shell: Find-PackageProvider -Name Nuget -ForceBootstrap -IncludeDependencies -Force
+# Load required powershell modules
+- name: Check for StorageDsc DSC Powershell module
+  community.windows.win_psmodule:
+    name: "StorageDsc"
+    accept_license: true
+    state: present
+- name: Provision disks with drive letters
+  ansible.windows.win_dsc:
+    resource_name: Disk
+    DiskId: "{{ volume_name_to_win_disk_id[volume.key] }}"
+    DiskIdType: 'UniqueId'
+    AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
+    AllowDestructive: "{{ volume.value.AllowDestructive | default(false) }}"
+    PartitionStyle: "{{ volume.value.PartitionStyle | default('GPT') }}"
+    Size: "{{ volume.value.Size | default(omit) }}"
+    DriveLetter: "{{ volume.value.DriveLetter }}"
+    FSLabel: "{{ volume.key }}"
+    FSFormat: "{{ volume.value.FSFormat }}"
+  when: volume.value.DriveLetter is defined
+  loop: "{{ volumes | dict2items }}"
+  loop_control:
+    loop_var: volume
+- name: Create directories for access paths (mount points)
+  ansible.windows.win_file:
+    path: "{{ mount_point.value.AccessPath }}"
+    state: directory
+  when: mount_point.value.AccessPath is defined
+  loop: "{{ volumes | dict2items }}"
+  loop_control:
+    loop_var: mount_point
+- name: Provision disks with access paths
+  ansible.windows.win_dsc:
+    resource_name: DiskAccessPath
+    DiskId: "{{ volume_name_to_win_disk_id[volume.key] }}"
+    DiskIdType: 'UniqueId'
+    AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
+    Size: "{{ volume.value.Size | default(omit) }}"
+    AccessPath: "{{ volume.value.AccessPath }}"
+    FSLabel: "{{ volume.key }}"
+    FSFormat: "{{ volume.value.FSFormat }}"
+  when: volume.value.AccessPath is defined
+  loop: "{{ volumes | dict2items }}"
+  loop_control:
+    loop_var: volume
