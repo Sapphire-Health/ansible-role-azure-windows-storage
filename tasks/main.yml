@@ -3,7 +3,6 @@
   azure.azcollection.azure_rm_virtualmachine_info:
     name: "{{ inventory_hostname_short }}"
     resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
-    auth_source: "{{ auth_source }}"
   register: vm
   delegate_to: localhost
 - name: Show Azure VM info
@@ -19,7 +18,6 @@
   azure.azcollection.azure_rm_manageddisk_info:
     name: "{{ disk.name }}"
     resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
-    auth_source: "{{ auth_source }}"
   register: managed_disks
   delegate_to: localhost
   loop: "{{ vm.vms[0].data_disks }}"
