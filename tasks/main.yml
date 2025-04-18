@@ -79,6 +79,7 @@
     name: "StorageDsc"
     accept_license: true
     state: present
+
 - name: Provision disks with drive letters
   ansible.windows.win_dsc:
     resource_name: Disk
@@ -86,11 +87,11 @@
     DiskIdType: 'UniqueId'
     AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
     AllowDestructive: "{{ volume.value.AllowDestructive | default(false) }}"
-    PartitionStyle: "{{ volume.value.PartitionStyle | default('GPT') }}"
+    PartitionStyle: "{{ volume.value.PartitionStyle | default(azure_windows_storage_default_style) }}"
     Size: "{{ volume.value.Size | default(omit) }}"
     DriveLetter: "{{ volume.value.DriveLetter }}"
-    FSLabel: "{{ volume.key }}"
-    FSFormat: "{{ volume.value.FSFormat }}"
+    FSLabel: "{{ volume.value.FSLabel | default(volume.key) }}"
+    FSFormat: "{{ volume.value.FSFormat | default(azure_windows_storage_default_file_system) }}"
   when: volume.value.DriveLetter is defined
   loop: "{{ volumes | dict2items }}"
   loop_control:
@@ -111,8 +112,8 @@
     AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
     Size: "{{ volume.value.Size | default(omit) }}"
     AccessPath: "{{ volume.value.AccessPath }}"
-    FSLabel: "{{ volume.key }}"
-    FSFormat: "{{ volume.value.FSFormat }}"
+    FSLabel: "{{ volume.value.FSLabel | default(volume.key) }}"
+    FSFormat: "{{ volume.value.FSFormat | default(azure_windows_storage_default_file_system) }}"
   when: volume.value.AccessPath is defined
   loop: "{{ volumes | dict2items }}"
   loop_control:
