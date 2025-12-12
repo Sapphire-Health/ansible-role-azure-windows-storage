@@ -1,6 +1,7 @@
 ---
 - name: Get Azure VM info
   azure.azcollection.azure_rm_virtualmachine_info:
+    auth_source: msi
     name: "{{ inventory_hostname_short }}"
     resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
   register: vm
@@ -16,6 +17,7 @@
   delegate_to: localhost
 - name: Get facts for all managed disks managed by a specific VM
   azure.azcollection.azure_rm_manageddisk_info:
+    auth_source: msi
     name: "{{ disk.name }}"
     resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
   register: managed_disks
@@ -44,15 +46,15 @@
 - name: Get disk facts
   community.windows.win_disk_facts:
   register: windows_disks
-# - name: Show disk facts
-#   ansible.builtin.debug:
-#     msg: "{{ windows_disks }}"
-#   delegate_to: localhost
+- name: Show disk facts
+  ansible.builtin.debug:
+    msg: "{{ windows_disks }}"
+  delegate_to: localhost
 - name: Get lun mapping to windows disk id
   ansible.builtin.set_fact:
     lun_to_win_disk_id: "{{ lun_to_win_disk_id | default({}) | combine({lun: disk.unique_id}) }}"
   vars:
-    lun: "{{ disk.location | split(':') | last | lower | regex_replace(' ', '') }}"
+    lun: "lun{{ ((disk.win32_disk_drive.scsi_logical_unit | int) - 1) | string }}"
   delegate_to: localhost
   loop: "{{ windows_disks.ansible_facts.ansible_disks }}"
   loop_control:
