@@ -1,0 +1,40 @@
+- name: Add tags to all tasks
+  tags:
+    - always
+  block:
+    - name: Get Azure VM info
+      azure.azcollection.azure_rm_virtualmachine_info:
+        name: "{{ inventory_hostname_short }}"
+        resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
+        subscription_id: "{{ hostvars[inventory_hostname]['os_disk']['id'].split('/')[2] }}"
+        auth_source: msi
+      register: azure_windows_storage_vm
+      delegate_to: localhost
+
+    - name: Show Azure VM info
+      ansible.builtin.debug:
+        msg: "{{ azure_windows_storage_vm.vms[0] }}"
+      delegate_to: localhost
+
+    - name: Make sure one VM was returned
+      ansible.builtin.fail:
+        msg: "No VM found for {{ inventory_hostname_short }}"
+      when: azure_windows_storage_vm.vms | length == 0 or azure_windows_storage_vm.vms | length > 1
+      delegate_to: localhost
+
+    - name: Get facts for all managed disks managed by a specific VM
+      azure.azcollection.azure_rm_manageddisk_info:
+        name: "{{ disk.name }}"
+        resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
+        subscription_id: "{{ hostvars[inventory_hostname]['os_disk']['id'].split('/')[2] }}"
+        auth_source: msi
+      register: azure_windows_storage_managed_disks
+      delegate_to: localhost
+      loop: "{{ azure_windows_storage_vm.vms[0].data_disks }}"
+      loop_control:
+        loop_var: disk
+
+    - name: Show managed disks info
+      ansible.builtin.debug:
+        msg: "{{ azure_windows_storage_managed_disks.results }}"
+      delegate_to: localhost
