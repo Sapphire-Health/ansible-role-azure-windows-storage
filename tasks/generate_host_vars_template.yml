@@ -16,6 +16,6 @@
     - name: Write host_vars template
       ansible.builtin.copy:
         dest: "{{ inventory_dir }}/host_vars/{{ inventory_hostname }}.yml"
-        content: "{{ azure_windows_storage_managed_disks_info | join('\n') }}\n"
+        content: "{{ azure_windows_storage_managed_disks_info | sort | join('\n') }}\n"
         mode: '0644'
       delegate_to: localhost

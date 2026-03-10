@@ -1,114 +1,123 @@
-- name: Get volume name to lun mapping
-  ansible.builtin.set_fact:
-    azure_windows_storage_vol_name_to_lun: >-
-      {{ azure_windows_storage_vol_name_to_lun | default({}) |
-      combine({disk_mapping.ansible_info.azure_managed_disk[0].tags.disk_label: lun}) }}
-  vars:
-    lun: "lun{{ disk_mapping.disk.lun }}"
-  delegate_to: localhost
-  when: disk_mapping.ansible_info.azure_managed_disk[0].tags.disk_label is defined
-  loop: "{{ azure_windows_storage_managed_disks.results }}"
-  loop_control:
-    loop_var: disk_mapping
+- name: Add tags to all tasks
+  tags:
+    - always
+  block:
+    - name: Make sure volumes variable is defined
+      ansible.builtin.fail:
+        msg: "volumes variable is not defined. Please define it in host_vars."
+      when: volumes is not defined
 
-- name: Show volume name to lun mapping
-  ansible.builtin.debug:
-    msg: "{{ azure_windows_storage_vol_name_to_lun }}"
-  delegate_to: localhost
+    - name: Get volume name to lun mapping
+      ansible.builtin.set_fact:
+        azure_windows_storage_vol_name_to_lun: >-
+          {{ azure_windows_storage_vol_name_to_lun | default({}) |
+          combine({disk_mapping.ansible_info.azure_managed_disk[0].tags.disk_label: lun}) }}
+      vars:
+        lun: "lun{{ disk_mapping.disk.lun }}"
+      delegate_to: localhost
+      when: disk_mapping.ansible_info.azure_managed_disk[0].tags.disk_label is defined
+      loop: "{{ azure_windows_storage_managed_disks.results }}"
+      loop_control:
+        loop_var: disk_mapping
 
-- name: Get disk facts
-  community.windows.win_disk_facts:
-  register: azure_windows_storage_windows_disks
+    - name: Show volume name to lun mapping
+      ansible.builtin.debug:
+        msg: "{{ azure_windows_storage_vol_name_to_lun }}"
+      delegate_to: localhost
 
-# - name: Show disk facts
-#   ansible.builtin.debug:
-#     msg: "{{ azure_windows_storage_windows_disks }}"
-#   delegate_to: localhost
+    - name: Get disk facts
+      community.windows.win_disk_facts:
+      register: azure_windows_storage_windows_disks
 
-- name: Get lun mapping to windows disk id for non-NVMe disks
-  ansible.builtin.set_fact:
-    azure_windows_storage_lun_to_win_disk_id: "{{ azure_windows_storage_lun_to_win_disk_id | default({}) | combine({lun: disk.unique_id}) }}"
-  vars:
-    lun: "{{ disk.location | split(':') | last | lower | regex_replace(' ', '') }}"
-  delegate_to: localhost
-  loop: "{{ azure_windows_storage_windows_disks.ansible_facts.ansible_disks }}"
-  loop_control:
-    loop_var: disk
-  when: disk.bus_type != 'NVMe'
+    # - name: Show disk facts
+    #   ansible.builtin.debug:
+    #     msg: "{{ azure_windows_storage_windows_disks }}"
+    #   delegate_to: localhost
 
-- name: Get lun mapping to windows disk id for NVMe disks
-  ansible.builtin.set_fact:
-    azure_windows_storage_lun_to_win_disk_id: "{{ azure_windows_storage_lun_to_win_disk_id | default({}) | combine({lun: disk.unique_id}) }}"
-  vars:
-    lun: "lun{{ ((disk.win32_disk_drive.scsi_logical_unit | int) - 1) | string }}"
-  delegate_to: localhost
-  loop: "{{ azure_windows_storage_windows_disks.ansible_facts.ansible_disks }}"
-  loop_control:
-    loop_var: disk
-  when: disk.bus_type == 'NVMe'
+    - name: Get lun mapping to windows disk id for non-NVMe disks
+      ansible.builtin.set_fact:
+        azure_windows_storage_lun_to_win_disk_id: "{{ azure_windows_storage_lun_to_win_disk_id | default({}) | combine({lun: disk.unique_id}) }}"
+      vars:
+        lun: "{{ disk.location | split(':') | last | lower | regex_replace(' ', '') }}"
+      delegate_to: localhost
+      loop: "{{ azure_windows_storage_windows_disks.ansible_facts.ansible_disks }}"
+      loop_control:
+        loop_var: disk
+      when: disk.bus_type != 'NVMe'
 
-- name: Show lun to windows disk id
-  ansible.builtin.debug:
-    msg: "{{ azure_windows_storage_lun_to_win_disk_id }}"
-  delegate_to: localhost
+    - name: Get lun mapping to windows disk id for NVMe disks
+      ansible.builtin.set_fact:
+        azure_windows_storage_lun_to_win_disk_id: "{{ azure_windows_storage_lun_to_win_disk_id | default({}) | combine({lun: disk.unique_id}) }}"
+      vars:
+        lun: "lun{{ ((disk.win32_disk_drive.scsi_logical_unit | int) - 1) | string }}"
+      delegate_to: localhost
+      loop: "{{ azure_windows_storage_windows_disks.ansible_facts.ansible_disks }}"
+      loop_control:
+        loop_var: disk
+      when: disk.bus_type == 'NVMe'
 
-- name: Get volume name to lun mapping
-  ansible.builtin.set_fact:
-    azure_windows_storage_azure_windows_storage_: "{{ azure_windows_storage_azure_windows_storage_ | default({}) | combine({item.key: win_disk_id}) }}"
-  vars:
-    win_disk_id: "{{ azure_windows_storage_lun_to_win_disk_id[item.value] }}"
-  delegate_to: localhost
-  loop: "{{ azure_windows_storage_vol_name_to_lun | dict2items }}"
+    - name: Show lun to windows disk id
+      ansible.builtin.debug:
+        msg: "{{ azure_windows_storage_lun_to_win_disk_id }}"
+      delegate_to: localhost
 
-- name: Show lun to windows disk id
-  ansible.builtin.debug:
-    msg: "{{ azure_windows_storage_azure_windows_storage_ }}"
-  delegate_to: localhost
+    - name: Get volume name to lun mapping
+      ansible.builtin.set_fact:
+        azure_windows_storage_azure_windows_storage_: "{{ azure_windows_storage_azure_windows_storage_ | default({}) | combine({item.key: win_disk_id}) }}"
+      vars:
+        win_disk_id: "{{ azure_windows_storage_lun_to_win_disk_id[item.value] }}"
+      delegate_to: localhost
+      loop: "{{ azure_windows_storage_vol_name_to_lun | dict2items }}"
 
-# Load required powershell modules
-- name: Check for StorageDsc DSC Powershell module
-  community.windows.win_psmodule:
-    name: "StorageDsc"
-    accept_license: true
-    state: present
+    - name: Show lun to windows disk id
+      ansible.builtin.debug:
+        msg: "{{ azure_windows_storage_azure_windows_storage_ }}"
+      delegate_to: localhost
 
-- name: Provision disks with drive letters
-  ansible.windows.win_dsc:
-    resource_name: Disk
-    DiskId: "{{ azure_windows_storage_azure_windows_storage_[volume.key] }}"
-    DiskIdType: 'UniqueId'
-    AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
-    AllowDestructive: "{{ volume.value.AllowDestructive | default(false) }}"
-    PartitionStyle: "{{ volume.value.PartitionStyle | default(azure_windows_storage_default_style) }}"
-    Size: "{{ volume.value.Size | default(omit) }}"
-    DriveLetter: "{{ volume.value.DriveLetter }}"
-    FSLabel: "{{ volume.value.FSLabel | default(volume.key) }}"
-    FSFormat: "{{ volume.value.FSFormat | default(azure_windows_storage_default_file_system) }}"
-  when: volume.value.DriveLetter is defined
-  loop: "{{ volumes | dict2items }}"
-  loop_control:
-    loop_var: volume
+    # Load required powershell modules
+    - name: Check for StorageDsc DSC Powershell module
+      community.windows.win_psmodule:
+        name: "StorageDsc"
+        accept_license: true
+        state: present
 
-- name: Create directories for access paths (mount points)
-  ansible.windows.win_file:
-    path: "{{ mount_point.value.AccessPath }}"
-    state: directory
-  when: mount_point.value.AccessPath is defined
-  loop: "{{ volumes | dict2items }}"
-  loop_control:
-    loop_var: mount_point
+    - name: Provision disks with drive letters
+      ansible.windows.win_dsc:
+        resource_name: Disk
+        DiskId: "{{ azure_windows_storage_azure_windows_storage_[volume.key] }}"
+        DiskIdType: 'UniqueId'
+        AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
+        AllowDestructive: "{{ volume.value.AllowDestructive | default(false) }}"
+        PartitionStyle: "{{ volume.value.PartitionStyle | default(azure_windows_storage_default_style) }}"
+        Size: "{{ volume.value.Size | default(omit) }}"
+        DriveLetter: "{{ volume.value.DriveLetter }}"
+        FSLabel: "{{ volume.value.FSLabel | default(volume.key) }}"
+        FSFormat: "{{ volume.value.FSFormat | default(azure_windows_storage_default_file_system) }}"
+      when: volume.value.DriveLetter is defined
+      loop: "{{ volumes | dict2items }}"
+      loop_control:
+        loop_var: volume
 
-- name: Provision disks with access paths
-  ansible.windows.win_dsc:
-    resource_name: DiskAccessPath
-    DiskId: "{{ azure_windows_storage_azure_windows_storage_[volume.key] }}"
-    DiskIdType: 'UniqueId'
-    AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
-    Size: "{{ volume.value.Size | default(omit) }}"
-    AccessPath: "{{ volume.value.AccessPath }}"
-    FSLabel: "{{ volume.value.FSLabel | default(volume.key) }}"
-    FSFormat: "{{ volume.value.FSFormat | default(azure_windows_storage_default_file_system) }}"
-  when: volume.value.AccessPath is defined
-  loop: "{{ volumes | dict2items }}"
-  loop_control:
-    loop_var: volume
+    - name: Create directories for access paths (mount points)
+      ansible.windows.win_file:
+        path: "{{ mount_point.value.AccessPath }}"
+        state: directory
+      when: mount_point.value.AccessPath is defined
+      loop: "{{ volumes | dict2items }}"
+      loop_control:
+        loop_var: mount_point
+
+    - name: Provision disks with access paths
+      ansible.windows.win_dsc:
+        resource_name: DiskAccessPath
+        DiskId: "{{ azure_windows_storage_azure_windows_storage_[volume.key] }}"
+        DiskIdType: 'UniqueId'
+        AllocationUnitSize: "{{ volume.value.AllocationUnitSize | default(omit) }}"
+        Size: "{{ volume.value.Size | default(omit) }}"
+        AccessPath: "{{ volume.value.AccessPath }}"
+        FSLabel: "{{ volume.value.FSLabel | default(volume.key) }}"
+        FSFormat: "{{ volume.value.FSFormat | default(azure_windows_storage_default_file_system) }}"
+      when: volume.value.AccessPath is defined
+      loop: "{{ volumes | dict2items }}"
+      loop_control:
+        loop_var: volume

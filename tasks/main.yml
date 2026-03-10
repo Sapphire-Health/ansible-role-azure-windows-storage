@@ -1,6 +1,6 @@
-- name: Get Azure Disks
+- name: Get Disks
   ansible.builtin.include_tasks:
-    file: get_azure_disks.yml
+    file: get_disks.yml
   tags:
     - get_disks
     - generate_host_vars
