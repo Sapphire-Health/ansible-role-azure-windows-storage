@@ -7,7 +7,7 @@
         name: "{{ inventory_hostname_short }}"
         resource_group: "{{ hostvars[inventory_hostname]['resource_group'] }}"
         subscription_id: "{{ hostvars[inventory_hostname]['os_disk']['id'].split('/')[2] }}"
-        auth_source: msi
+        auth_source: "{{ azure_windows_storage_auth_source }}"
       register: azure_windows_storage_vm
       delegate_to: localhost
 

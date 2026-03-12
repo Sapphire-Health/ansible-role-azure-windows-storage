@@ -1,3 +1,4 @@
 ---
+azure_windows_storage_auth_source: msi
 azure_windows_storage_default_file_system: NTFS
 azure_windows_storage_default_style: GPT
